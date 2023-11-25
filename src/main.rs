@@ -2,33 +2,26 @@ use std::net::SocketAddr;
 
 use tokio::{
     self,
-    io::AsyncWriteExt,
-    io::{AsyncReadExt, Result},
+    io::Result,
     net::{TcpListener, TcpStream},
 };
 
+mod client;
 mod command;
-use self::command::Command;
+use crate::client::Client;
+use crate::command::Command;
 
-async fn handle(mut stream: TcpStream, address: SocketAddr) -> Result<()> {
+async fn handle(stream: TcpStream, address: SocketAddr) -> Result<()> {
     // Print connected message
     println!("[+] Address {} connected!", address);
 
-    let mut buf: [u8; 1024] = [0; 1024];
+    let mut client: Client = Client::new(stream);
 
-    // Listen for incoming messages
     loop {
-        // Await until it can be readable
-        stream.readable().await?;
-
-        // Get message
-        let bytes_read = stream.read(&mut buf).await?;
-        if bytes_read == 0 {
-            break;
-        }
-
-        // Translate from bytes to string
-        let message = String::from_utf8_lossy(&buf[0..bytes_read]).to_string();
+        let message = match client.read_into_string().await {
+            Err(_) => break,
+            Ok(c) => c.strip_suffix("\r").unwrap_or(&c).to_owned(),
+        };
 
         // Parse commands
         for command in Command::parse_commands(&message).await {
@@ -36,11 +29,11 @@ async fn handle(mut stream: TcpStream, address: SocketAddr) -> Result<()> {
 
             match command {
                 Command::Ping => {
-                    stream.write(b"+PONG\r\n").await?;
+                    client.send_simple_string("PONG").await?;
                 }
                 Command::Unknown => {
-                    stream
-                        .write(format!("-ERR unknown command '{message}'\r\n").as_bytes())
+                    client
+                        .send_simple_error(&format!("unknown command '{message}'"))
                         .await?;
                 }
             }
@@ -48,7 +41,7 @@ async fn handle(mut stream: TcpStream, address: SocketAddr) -> Result<()> {
     }
 
     // Goodbye
-    stream.shutdown().await?;
+    client.shutdown().await?;
     println!("[+] Connection with {} ended", address);
 
     Ok(())
