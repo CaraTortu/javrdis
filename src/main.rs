@@ -18,30 +18,29 @@ async fn handle(stream: TcpStream, address: SocketAddr) -> Result<()> {
     let mut client: Client = Client::new(stream);
 
     loop {
-        let message = match client.read_into_string().await {
-            Err(_) => break,
-            Ok(c) => c.strip_suffix("\r").unwrap_or(&c).to_owned(),
+        // Parse commands
+        let command = match Command::parse_command(&mut client).await {
+            Ok(v) => v,
+            Err(e) => {
+                println!("[i] Closing connection with {address} for '{e}'");
+                client.send_simple_error(&format!("Closing your connection because {e}")).await;
+                break;
+            }
         };
 
-        // Parse commands
-        for command in Command::parse_commands(&message).await {
-            println!("[i] Got command '{:?}'", command);
+        println!("[i] Got command '{:?}'", command);
 
-            match command {
-                Command::Ping => {
-                    client.send_simple_string("PONG").await?;
-                }
-                Command::Unknown => {
-                    client
-                        .send_simple_error(&format!("unknown command '{message}'"))
-                        .await?;
-                }
+        match command {
+            Command::Ping => client.send_simple_string("PONG").await,
+            Command::Unknown => client.send_simple_error(&format!("Unknown command")).await,
+            cmd => {
+                println!("{cmd:?}");
             }
         }
     }
 
     // Goodbye
-    client.shutdown().await?;
+    client.shutdown().await;
     println!("[+] Connection with {} ended", address);
 
     Ok(())
