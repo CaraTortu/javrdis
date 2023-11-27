@@ -84,7 +84,7 @@ impl Client {
     }
 
     pub async fn send_simple_error(&mut self, string: &str) {
-        self.write_to_buffer(format!("- ERR {string}").as_bytes())
+        self.write_to_buffer(format!("-ERR {string}").as_bytes())
             .await;
         self.send().await
     }

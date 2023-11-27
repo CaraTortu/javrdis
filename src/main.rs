@@ -23,7 +23,9 @@ async fn handle(stream: TcpStream, address: SocketAddr) -> Result<()> {
             Ok(v) => v,
             Err(e) => {
                 println!("[i] Closing connection with {address} for '{e}'");
-                client.send_simple_error(&format!("Closing your connection because {e}")).await;
+                client
+                    .send_simple_error(&format!("Closing your connection because {e}"))
+                    .await;
                 break;
             }
         };
@@ -33,9 +35,6 @@ async fn handle(stream: TcpStream, address: SocketAddr) -> Result<()> {
         match command {
             Command::Ping => client.send_simple_string("PONG").await,
             Command::Unknown => client.send_simple_error(&format!("Unknown command")).await,
-            cmd => {
-                println!("{cmd:?}");
-            }
         }
     }
 

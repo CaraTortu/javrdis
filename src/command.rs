@@ -16,7 +16,6 @@ pub enum DataType {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
     Ping,
-    Other(DataType),
     Unknown,
 }
 
@@ -25,8 +24,23 @@ impl Command {
     pub async fn parse_data(client: &mut Client, data: &str) -> Result<DataType> {
         Ok(
             match data.chars().nth(0).expect("We should have one character") {
+                // Simple strings "+Hello there\r\n"
                 '+' => DataType::String(data.get(1..).unwrap_or("").to_owned()),
-                ':' => todo!(),
+
+                // Numbers ":-12\r\n"
+                ':' => {
+                    let number_literal = data.get(1..);
+
+                    if let Some(literal) = number_literal {
+                        if let Ok(number) = literal.parse::<i64>() {
+                            return Ok(DataType::Number(number));
+                        }
+                    }
+
+                    return Err(Error::new(ErrorKind::InvalidData, "Wrong integer formmat"));
+                }
+
+                // Arrays
                 '*' => {
                     let item_count_str = match data.get(1..) {
                         None => {
@@ -57,6 +71,8 @@ impl Command {
 
                     DataType::Array(items)
                 }
+
+                // Bulk String
                 '$' => {
                     let string_length: usize = data.get(1..).unwrap().parse().unwrap();
                     let s = client.read_into_string().await?;
@@ -82,15 +98,19 @@ impl Command {
             return Err(Error::new(ErrorKind::InvalidData, "Empty payload"));
         }
 
-        match message.to_lowercase().as_str() {
-            "ping" => Ok(Self::Ping),
-            command => {
-                if command == "" {
-                    return Ok(Self::Unknown);
-                }
-
-                Ok(Self::Other(Self::parse_data(client, command).await?))
+        if let DataType::Array(values) = Self::parse_data(client, &message).await? {
+            if values.len() == 0 {
+                return Err(Error::new(ErrorKind::InvalidData, "Empty payload"));
+            }
+            println!("{:?}", values);
+            if let DataType::String(command) = values.get(0).expect("Checked boundaries") {
+                return match command.to_lowercase().as_str() {
+                    "ping" => Ok(Self::Ping),
+                    _ => Ok(Self::Unknown),
+                };
             }
         }
+
+        Err(Error::new(ErrorKind::InvalidData, "Invalid data type"))
     }
 }
